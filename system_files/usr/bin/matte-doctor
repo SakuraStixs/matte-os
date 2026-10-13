@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# matte-doctor: check that Matte OS is set up properly on this PC, and fix what it safely can.
+#
+#   matte-doctor          check only
+#   matte-doctor --fix    check, then fix (asks before anything that needs sudo)
+#
+# Checks: niri config, monitors, keyring, Claude Desktop, boot animation, animated wallpaper.
+
+set -uo pipefail
+
+FIX=0
+[[ "${1:-}" == "--fix" ]] && FIX=1
+
+ok()   { printf '  ok    %s\n' "$*"; }
+warn() { printf '  !!    %s\n' "$*"; }
+info() { printf '        %s\n' "$*"; }
+section() { printf '\n%s\n' "$*"; }
+fixed(){ printf '  fixed %s\n' "$*"; }
+
+confirm() {   # confirm "question" -> 0 if yes
+    local reply
+    read -r -p "        $1 [y/N] " reply
+    [[ "$reply" == [yY]* ]]
+}
+
+# ---------------------------------------------------------------- niri config
+section "niri config"
+if [[ -f "$HOME/.config/niri/config.kdl" ]]; then
+    info "You have your own ~/.config/niri/config.kdl, so niri uses that instead of /etc/niri/config.kdl."
+    grep -q 'include.*"/etc/niri/config.kdl"' "$HOME/.config/niri/config.kdl" \
+        && ok "it includes /etc/niri/config.kdl, so Matte OS updates still reach you" \
+        || warn "it doesn't include /etc/niri/config.kdl; add: include \"/etc/niri/config.kdl\" at the top"
+fi
+if [[ -f /usr/etc/niri/config.kdl ]] && ! cmp -s /etc/niri/config.kdl /usr/etc/niri/config.kdl; then
+    warn "/etc/niri/config.kdl was edited on this PC, so image updates to it don't arrive."
+    if (( FIX )) && confirm "Replace it with the Matte OS version (your copy is kept as config.kdl.bak)?"; then
+        sudo cp -a /etc/niri/config.kdl /etc/niri/config.kdl.bak \
+            && sudo install -m 0644 /usr/etc/niri/config.kdl /etc/niri/config.kdl \
+            && fixed "/etc/niri/config.kdl restored (niri reloads it by itself)"
+    else
+        info "Fix: matte-doctor --fix   (or: sudo cp /usr/etc/niri/config.kdl /etc/niri/config.kdl)"
+    fi
+else
+    ok "/etc/niri/config.kdl matches the image"
+fi
+if command -v niri >/dev/null; then
+    if out="$(niri validate -c /etc/niri/config.kdl 2>&1)"; then
+        ok "config is valid"
+    else
+        warn "niri validate failed:"; printf '%s\n' "$out" | sed 's/^/        /'
+    fi
+fi
+
+# ---------------------------------------------------------------- monitors
+section "Monitors"
+if [[ -n "${NIRI_SOCKET:-}" ]] && json="$(niri msg --json outputs 2>/dev/null)"; then
+    python3 - "$json" <<'PY'
+import json, sys
+outputs = json.loads(sys.argv[1])
+for name in sorted(outputs, key=lambda n: (outputs[n].get("logical") or {}).get("x", 0)):
+    o = outputs[name]
+    modes = o.get("modes", [])
+    cur = o.get("current_mode")
+    logical = o.get("logical") or {}
+    if cur is None:
+        print(f"  !!    {name}: off")
+        continue
+    m = modes[cur]
+    hz = m["refresh_rate"] / 1000
+    line = f"{name}: {m['width']}x{m['height']} @ {hz:.3f} Hz at x={logical.get('x')}"
+    best = max((x["refresh_rate"] for x in modes if (x["width"], x["height"]) == (m["width"], m["height"])), default=0)
+    if m["refresh_rate"] + 500 < best:
+        print(f"  !!    {line}  (can do {best/1000:.3f} Hz; put that exact number in /etc/niri/config.kdl)")
+    else:
+        print(f"  ok    {line}")
+PY
+else
+    info "Not inside a niri session, so monitors weren't checked."
+fi
+
+# ---------------------------------------------------------------- keyring
+section "Keyring"
+pam=""
+for p in /usr/lib64/security/pam_gnome_keyring.so /usr/lib/security/pam_gnome_keyring.so; do
+    [[ -e "$p" ]] && pam="$p"
+done
+[[ -n "$pam" ]] && ok "PAM module installed (unlocks the keyring with your login password)" \
+    || warn "pam_gnome_keyring.so is missing; update to the latest Matte OS image"
+
+secrets_call() { busctl --user "$@" 2>/dev/null; }
+owner="$(secrets_call status org.freedesktop.secrets | sed -n 's/^Comm=//p')"
+if [[ -z "$owner" ]]; then
+    warn "nothing is providing the Secret Service (org.freedesktop.secrets) right now"
+else
+    [[ "$owner" == gnome-keyring* ]] && ok "gnome-keyring provides the Secret Service" \
+        || warn "the Secret Service is provided by '$owner', not gnome-keyring"
+    login_path=/org/freedesktop/secrets/collection/login
+    if secrets_call get-property org.freedesktop.secrets "$login_path" org.freedesktop.Secret.Collection Locked >/dev/null; then
+        locked="$(secrets_call get-property org.freedesktop.secrets "$login_path" org.freedesktop.Secret.Collection Locked)"
+        [[ "$locked" == "b false" ]] && ok "the 'login' keyring is unlocked" \
+            || warn "the 'login' keyring is locked; log out and back in with your password (autologin can't unlock it)"
+        default="$(secrets_call call org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service ReadAlias s default | awk '{print $2}' | tr -d '"')"
+        if [[ "$default" == "$login_path" ]]; then
+            ok "'login' is the default keyring, so apps store secrets where login unlocks them"
+        else
+            warn "the default keyring is ${default##*/}, which login doesn't unlock (you'd be asked for its password)"
+            if (( FIX )); then
+                secrets_call call org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service SetAlias so default "$login_path" >/dev/null \
+                    && fixed "'login' is now the default keyring (the old one is kept, untouched)"
+            else
+                info "Fix: matte-doctor --fix"
+            fi
+        fi
+    else
+        warn "there's no 'login' keyring yet; it's created the first time you log in with a password on this image"
+    fi
+fi
+
+# ---------------------------------------------------------------- shell look
+section "Shell look (DankMaterialShell)"
+dms_settings="$HOME/.config/DankMaterialShell/settings.json"
+if [[ -f "$dms_settings" ]]; then
+    dms_report="$(python3 - "$dms_settings" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+want = {
+    "currentThemeName": "custom",
+    "customThemeFile": "/usr/share/matte-os/dms/matte-theme.json",
+    "fontFamily": "Plus Jakarta Sans",
+    "monoFontFamily": "JetBrains Mono",
+    "launcherLogoMode": "custom",
+    "launcherLogoCustomPath": "/usr/share/pixmaps/matte-os-logo-small.svg",
+}
+print(" ".join(k for k, v in want.items() if s.get(k) != v))
+PY
+)"
+    if [[ -z "$dms_report" ]]; then
+        ok "Matte OS theme (#7DD3FC), fonts and logo"
+    else
+        warn "differs from the Matte OS defaults in: $dms_report"
+        if (( FIX )) && confirm "Switch DMS to the Matte OS theme, fonts and logo (Island layout stays as it is)?"; then
+            cp -a "$dms_settings" "$dms_settings.bak"
+            python3 - "$dms_settings" <<'PY' && fixed "DMS now uses the Matte OS look (previous settings in settings.json.bak)"
+import json, os, sys
+path = sys.argv[1]
+s = json.load(open(path))
+s.update({
+    "currentThemeName": "custom",
+    "currentThemeCategory": "custom",
+    "customThemeFile": "/usr/share/matte-os/dms/matte-theme.json",
+    "fontFamily": "Plus Jakarta Sans",
+    "monoFontFamily": "JetBrains Mono",
+    "launcherLogoMode": "custom",
+    "launcherLogoCustomPath": "/usr/share/pixmaps/matte-os-logo-small.svg",
+})
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(s, f, indent=2)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+        elif (( ! FIX )); then
+            info "Fix: matte-doctor --fix"
+        fi
+    fi
+else
+    info "DMS hasn't saved any settings yet; new accounts start with the Matte OS defaults."
+fi
+
+# ---------------------------------------------------------------- Claude Desktop
+section "Claude Desktop"
+if distrobox list --no-color 2>/dev/null | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -qx claude; then
+    ok "the 'claude' distrobox exists"
+else
+    warn "no 'claude' distrobox; set it up with: matte-claude-setup"
+fi
+[[ -f /usr/share/applications/com.anthropic.Claude.desktop ]] && ok "launcher uses the system keyring (--password-store=gnome-libsecret)"
+old_entry="$HOME/.local/share/applications/claude-com.anthropic.Claude.desktop"
+if [[ -f "$old_entry" ]]; then
+    warn "an older exported launcher is still there, so Claude shows twice in the app list"
+    if (( FIX )); then
+        mv -f "$old_entry" "$old_entry.old" && fixed "moved it aside to $(basename "$old_entry").old"
+    else
+        info "Fix: matte-doctor --fix"
+    fi
+fi
+if pgrep -f 'claude-desktop.*password-store=gnome-libsecret' >/dev/null; then
+    ok "Claude is running with the system keyring"
+elif pgrep -f '/usr/bin/claude-desktop|/opt/Claude' >/dev/null; then
+    info "Claude is running without the keyring flag; quit it fully and open it again from the launcher"
+fi
+
+# ---------------------------------------------------------------- boot animation
+section "Boot animation"
+if command -v plymouth-set-default-theme >/dev/null; then
+    theme="$(plymouth-set-default-theme 2>/dev/null)"
+    [[ "$theme" == matte ]] && ok "Plymouth theme is Matte OS" || warn "Plymouth theme is '$theme', expected 'matte'"
+fi
+
+# ---------------------------------------------------------------- wallpaper
+section "Animated wallpaper"
+if distrobox list --no-color 2>/dev/null | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -qx wallpaper; then
+    ok "the 'wallpaper' distrobox exists"
+    matte-wallpaper status 2>/dev/null | sed 's/^/        /'
+else
+    info "Not set up (optional). To use Wallpaper Engine: matte-wallpaper setup"
+fi
+
+echo
