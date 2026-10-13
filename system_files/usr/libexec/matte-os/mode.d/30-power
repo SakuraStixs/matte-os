@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# matte-mode hook: performance power profile in VFX and Game modes, and back again afterwards.
+# Remembers the profile you had before, so leaving VFX/Game restores it rather than forcing "balanced".
+set -u
+command -v powerprofilesctl >/dev/null || exit 0
+saved="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/matte-os/power-profile-before"
+case "$1" in
+    vfx|game)
+        if [[ "$2" != vfx && "$2" != game ]]; then
+            powerprofilesctl get > "$saved" 2>/dev/null || true
+        fi
+        powerprofilesctl set performance
+        ;;
+    *)
+        if [[ "$2" == vfx || "$2" == game ]]; then
+            powerprofilesctl set "$(cat "$saved" 2>/dev/null || echo balanced)"
+            rm -f "$saved"
+        fi
+        ;;
+esac

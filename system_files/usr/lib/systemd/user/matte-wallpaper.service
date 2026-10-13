@@ -1,0 +1,14 @@
+[Unit]
+Description=Matte OS animated wallpaper (Wallpaper Engine through linux-wallpaperengine)
+# Started with each niri session (see niri.service.wants), and only once a wallpaper is set up.
+PartOf=graphical-session.target
+After=niri.service
+ConditionPathExists=%h/.config/matte-os/wallpaper.conf
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/matte-wallpaper run
+ExecStop=/usr/bin/matte-wallpaper stop-engine
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=10

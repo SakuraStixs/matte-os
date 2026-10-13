@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# matte-mode hook: do not disturb in Game and Focus modes (through DankMaterialShell for now).
+command -v dms >/dev/null || exit 0
+case "$1" in
+    game|focus) dms ipc call notifications enableDoNotDisturbIndefinitely >/dev/null ;;
+    *)          dms ipc call notifications disableDoNotDisturb >/dev/null ;;
+esac

@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# matte-mode: switch Matte OS between Normal, VFX, Game and Focus modes.
+#
+#   matte-mode                 show the current mode
+#   matte-mode set <mode>      switch to normal, vfx, game or focus
+#   matte-mode cycle           step through the modes (Win+M)
+#   matte-mode list            list the modes and what they change
+#
+# Each switch runs the hooks in /usr/libexec/matte-os/mode.d/ and then your own in
+# ~/.config/matte-os/mode.d/ (executable files, run in name order with: <new mode> <old mode>).
+# The mode lasts until you change it or log out.
+
+set -euo pipefail
+
+MODES=(normal vfx game focus)
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/matte-os"
+state_file="$runtime_dir/mode"
+
+current() {
+    if [[ -r "$state_file" ]]; then
+        cat "$state_file"
+    else
+        echo normal
+    fi
+}
+
+describe() {
+    case "$1" in
+        normal) echo "Everything on: animated wallpaper, notifications, balanced power" ;;
+        vfx)    echo "Renders first: performance power, animated wallpaper paused (notifications stay on for finished renders)" ;;
+        game)   echo "Games first: performance power, animated wallpaper paused, do not disturb" ;;
+        focus)  echo "Quiet: do not disturb, everything else as normal" ;;
+    esac
+}
+
+title() {
+    case "$1" in
+        normal) echo "Normal" ;;
+        vfx)    echo "VFX" ;;
+        game)   echo "Game" ;;
+        focus)  echo "Focus" ;;
+    esac
+}
+
+run_hooks() {
+    local new="$1" old="$2" hook
+    for dir in /usr/libexec/matte-os/mode.d "${XDG_CONFIG_HOME:-$HOME/.config}/matte-os/mode.d"; do
+        [[ -d "$dir" ]] || continue
+        for hook in "$dir"/*; do
+            [[ -f "$hook" && -x "$hook" ]] || continue
+            # A failing hook shouldn't stop the others or the switch itself.
+            "$hook" "$new" "$old" || echo "matte-mode: $(basename "$hook") failed" >&2
+        done
+    done
+}
+
+set_mode() {
+    local new="$1" old
+    old="$(current)"
+    if [[ ! " ${MODES[*]} " == *" $new "* ]]; then
+        echo "matte-mode: unknown mode '$new' (choose from: ${MODES[*]})" >&2
+        exit 2
+    fi
+    mkdir -p "$runtime_dir"
+    printf '%s\n' "$new" > "$state_file"
+    run_hooks "$new" "$old"
+    if command -v notify-send >/dev/null; then
+        notify-send --app-name="Matte OS" --icon=matte-os-logo --expire-time=2500 \
+            --hint=string:x-canonical-private-synchronous:matte-mode \
+            "$(title "$new") mode" "$(describe "$new")" || true
+    fi
+    echo "$new"
+}
+
+case "${1:-get}" in
+    get)
+        current
+        ;;
+    set)
+        [[ $# -ge 2 ]] || { echo "usage: matte-mode set <normal|vfx|game|focus>" >&2; exit 2; }
+        set_mode "$2"
+        ;;
+    cycle)
+        now="$(current)"
+        next="${MODES[0]}"
+        for i in "${!MODES[@]}"; do
+            if [[ "${MODES[$i]}" == "$now" ]]; then
+                next="${MODES[$(( (i + 1) % ${#MODES[@]} ))]}"
+            fi
+        done
+        set_mode "$next"
+        ;;
+    list)
+        for m in "${MODES[@]}"; do
+            printf '%-7s %s\n' "$m" "$(describe "$m")"
+        done
+        ;;
+    normal|vfx|game|focus)
+        set_mode "$1"
+        ;;
+    -h|--help|help)
+        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    *)
+        echo "matte-mode: unknown command '$1' (try: matte-mode help)" >&2
+        exit 2
+        ;;
+esac

@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# matte-wallpaper: animated Wallpaper Engine wallpapers on Matte OS, through linux-wallpaperengine.
+#
+#   matte-wallpaper setup                 one-time: make the "wallpaper" distrobox and build the engine
+#   matte-wallpaper list                  Workshop wallpapers you're subscribed to (ID, type, title)
+#   matte-wallpaper set <id|folder> [--screen <name>]
+#                                         show a wallpaper on every screen, or just one (e.g. DP-4)
+#   matte-wallpaper off                   stop animated wallpapers (DMS's still wallpaper shows again)
+#   matte-wallpaper pause | resume        what VFX and Game modes do automatically
+#   matte-wallpaper status
+#
+# Settings live in ~/.config/matte-os/wallpaper.conf (FPS, scaling, sound, how pausing works).
+# Needs Wallpaper Engine owned and installed in Steam (for its assets and your Workshop items).
+
+set -euo pipefail
+
+BOX=wallpaper
+BOX_IMAGE=ghcr.io/ublue-os/arch-toolbox:latest
+ENGINE_PACKAGE=linux-wallpaperengine-git
+ENGINE_COMM=linux-wallpaper      # the process name, as the kernel shortens it (15 characters)
+APP_ID=431960                    # Wallpaper Engine's Steam app ID
+UNIT=matte-wallpaper.service
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/matte-os/wallpaper.conf"
+STEAM_DIRS=(
+    "$HOME/.local/share/Steam"
+    "$HOME/.steam/steam"
+    "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"
+)
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'matte-wallpaper: %s\n' "$*" >&2; exit 1; }
+
+have_box() {
+    command -v distrobox >/dev/null && distrobox list --no-color 2>/dev/null | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -qx "$BOX"
+}
+
+write_default_conf() {
+    mkdir -p "$(dirname "$CONF")"
+    cat > "$CONF" <<'EOF'
+# Matte OS animated wallpaper settings. Change WALLPAPER with: matte-wallpaper set <id>
+# After editing by hand, apply with: systemctl --user restart matte-wallpaper
+
+# Workshop ID or folder shown on every screen
+WALLPAPER=
+# A different wallpaper for one screen: WALLPAPER_<screen name with - as _>, e.g.
+# WALLPAPER_DP_3=1845706469
+
+# Screens to cover; empty means every screen niri reports
+SCREENS=
+
+# Frames per second (lower uses less GPU)
+FPS=30
+# stretch, fit, fill or default
+SCALING=fill
+# true = no sound from wallpapers
+SILENT=true
+# How VFX and Game modes pause it:
+#   freeze  stops it instantly and keeps the last frame on screen (default)
+#   stop    closes it completely, which also frees its GPU memory
+PAUSE_METHOD=freeze
+EOF
+}
+
+load_conf() {
+    [[ -f "$CONF" ]] || write_default_conf
+    # shellcheck source=/dev/null
+    source "$CONF"
+    : "${WALLPAPER:=}" "${SCREENS:=}" "${FPS:=30}" "${SCALING:=fill}" "${SILENT:=true}" "${PAUSE_METHOD:=freeze}"
+}
+
+set_conf() {   # set_conf KEY VALUE
+    local key="$1" value="$2"
+    if grep -q "^${key}=" "$CONF"; then
+        sed -i "s|^${key}=.*|${key}=${value}|" "$CONF"
+    else
+        printf '%s=%s\n' "$key" "$value" >> "$CONF"
+    fi
+}
+
+screens() {
+    if [[ -n "${SCREENS:-}" ]]; then
+        printf '%s\n' $SCREENS
+    elif command -v niri >/dev/null && niri msg --json outputs >/dev/null 2>&1; then
+        niri msg --json outputs | python3 -c 'import json,sys; print("\n".join(sorted(json.load(sys.stdin))))'
+    else
+        die "can't ask niri for the screens; set SCREENS in $CONF"
+    fi
+}
+
+workshop_dirs() {
+    local d
+    for d in "${STEAM_DIRS[@]}"; do
+        [[ -d "$d/steamapps/workshop/content/$APP_ID" ]] && printf '%s\n' "$d/steamapps/workshop/content/$APP_ID"
+    done
+    return 0
+}
+
+engine_pids() { pgrep -u "$(id -u)" -x "$ENGINE_COMM" || true; }
+
+cmd_setup() {
+    command -v distrobox >/dev/null || die "distrobox isn't installed"
+    if have_box; then
+        say "The '$BOX' distrobox already exists."
+    else
+        say "Creating the '$BOX' distrobox (Arch Linux, with your NVIDIA driver passed through)..."
+        distrobox create --yes --name "$BOX" --image "$BOX_IMAGE" --nvidia
+    fi
+    say "Building linux-wallpaperengine from the AUR. This takes a while the first time..."
+    distrobox enter "$BOX" -- paru -S --noconfirm --needed "$ENGINE_PACKAGE"
+    load_conf
+    say ""
+    say "Done. Next:"
+    say "  1. Install Wallpaper Engine in Steam (it's a Windows app: Steam > Properties > Compatibility > Proton)"
+    say "     and subscribe to some wallpapers in its Workshop."
+    say "  2. matte-wallpaper list"
+    say "  3. matte-wallpaper set <id>"
+}
+
+cmd_list() {
+    local found=0 dir item
+    while IFS= read -r dir; do
+        for item in "$dir"/*/; do
+            [[ -f "$item/project.json" ]] || continue
+            found=1
+            python3 - "$item" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+try:
+    with open(os.path.join(path, "project.json"), encoding="utf-8") as f:
+        p = json.load(f)
+except Exception:
+    p = {}
+wid = os.path.basename(os.path.normpath(path))
+kind = str(p.get("type", "?")).lower()
+title = str(p.get("title", "(untitled)")).replace("\n", " ")
+print(f"{wid:<12} {kind:<6} {title}")
+PY
+        done
+    done < <(workshop_dirs)
+    if (( ! found )); then
+        say "No Workshop wallpapers found. Subscribe to some in Wallpaper Engine's Workshop on Steam,"
+        say "let Steam download them, then run this again."
+    fi
+}
+
+cmd_set() {
+    local id="" screen=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --screen) screen="${2:?--screen needs a name, e.g. DP-4}"; shift 2 ;;
+            *) id="$1"; shift ;;
+        esac
+    done
+    [[ -n "$id" ]] || die "usage: matte-wallpaper set <id|folder> [--screen <name>]"
+    load_conf
+    if [[ -n "$screen" ]]; then
+        set_conf "WALLPAPER_${screen//-/_}" "$id"
+        say "Screen $screen: $id"
+    else
+        set_conf WALLPAPER "$id"
+        say "All screens: $id"
+    fi
+    systemctl --user restart "$UNIT"
+}
+
+cmd_off() {
+    systemctl --user stop "$UNIT" || true
+    if [[ -f "$CONF" ]]; then
+        set_conf WALLPAPER ""
+        sed -i '/^WALLPAPER_[A-Za-z0-9_]*=/d' "$CONF"
+    fi
+    say "Animated wallpapers are off."
+}
+
+cmd_pause() {
+    load_conf
+    if [[ "$PAUSE_METHOD" == stop ]]; then
+        systemctl --user stop "$UNIT" || true
+    else
+        local pids; pids="$(engine_pids)"
+        [[ -n "$pids" ]] && kill -STOP $pids
+    fi
+    return 0
+}
+
+cmd_resume() {
+    local pids; pids="$(engine_pids)"
+    [[ -n "$pids" ]] && kill -CONT $pids
+    # If it was stopped (or never started this session), start it; this does nothing while it runs.
+    if [[ -f "$CONF" ]]; then
+        systemctl --user start "$UNIT" 2>/dev/null || true
+    fi
+    return 0
+}
+
+cmd_status() {
+    load_conf
+    say "Distrobox '$BOX': $(have_box && echo ready || echo 'missing (run: matte-wallpaper setup)')"
+    say "Wallpaper:        ${WALLPAPER:-none set}"
+    local var
+    for var in $(compgen -v | grep '^WALLPAPER_' || true); do
+        local name="${var#WALLPAPER_}"
+        say "  ${name//_/-}: ${!var}"
+    done
+    say "Service:          $(systemctl --user is-active "$UNIT" 2>/dev/null || true)"
+    local pids state=""; pids="$(engine_pids)"
+    if [[ -n "$pids" ]]; then
+        state="$(ps -o stat= -p "${pids%%$'\n'*}" 2>/dev/null || true)"
+        [[ "$state" == T* ]] && say "Engine:           paused" || say "Engine:           running"
+    else
+        say "Engine:           not running"
+    fi
+    say "Mode:             $(matte-mode get 2>/dev/null || echo normal)"
+}
+
+# What the systemd user service runs. Builds the engine's command line from the config.
+cmd_run() {
+    load_conf
+    case "$(matte-mode get 2>/dev/null || echo normal)" in
+        vfx|game)
+            if [[ "$PAUSE_METHOD" == stop ]]; then
+                say "VFX/Game mode is on, so the wallpaper stays off until you leave it."
+                exit 0
+            fi
+            ;;
+    esac
+    have_box || die "the '$BOX' distrobox is missing; run: matte-wallpaper setup"
+
+    local args=(--fps "$FPS" --layer background)
+    [[ "$SILENT" == true ]] && args+=(--silent)
+    local any=0 screen var bg
+    while IFS= read -r screen; do
+        [[ -n "$screen" ]] || continue
+        var="WALLPAPER_${screen//-/_}"
+        bg="${!var:-$WALLPAPER}"
+        [[ -n "$bg" ]] || continue
+        args+=(--screen-root "$screen" --scaling "$SCALING" --bg "$bg")
+        any=1
+    done < <(screens)
+    if (( ! any )); then
+        say "No wallpaper set. Pick one with: matte-wallpaper set <id>"
+        exit 0
+    fi
+    exec distrobox enter --no-tty "$BOX" -- linux-wallpaperengine "${args[@]}"
+}
+
+# Run by the service when it stops: the engine runs inside the distrobox, outside the
+# service's own process group, so end it explicitly (waking it first if it was frozen).
+cmd_stop_engine() {
+    local pids; pids="$(engine_pids)"
+    [[ -n "$pids" ]] || return 0
+    kill -CONT $pids 2>/dev/null || true
+    kill -TERM $pids 2>/dev/null || true
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        [[ -z "$(engine_pids)" ]] && return 0
+        sleep 0.3
+    done
+    # shellcheck disable=SC2046  # one PID per word
+    kill -KILL $(engine_pids) 2>/dev/null || true
+}
+
+case "${1:-status}" in
+    setup)       cmd_setup ;;
+    list)        cmd_list ;;
+    set)         shift; cmd_set "$@" ;;
+    off)         cmd_off ;;
+    pause)       cmd_pause ;;
+    resume)      cmd_resume ;;
+    status)      cmd_status ;;
+    run)         cmd_run ;;
+    stop-engine) cmd_stop_engine ;;
+    -h|--help|help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *) die "unknown command '$1' (try: matte-wallpaper help)" ;;
+esac

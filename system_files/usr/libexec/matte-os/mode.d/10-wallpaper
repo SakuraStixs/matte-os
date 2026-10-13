@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# matte-mode hook: pause the animated wallpaper in VFX and Game modes to free up the GPU.
+case "$1" in
+    vfx|game) exec matte-wallpaper pause ;;
+    *)        exec matte-wallpaper resume ;;
+esac
