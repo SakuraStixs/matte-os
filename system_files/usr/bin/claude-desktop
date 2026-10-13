@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Starts Claude Desktop, which lives in the "claude" distrobox (Ubuntu), from Matte OS.
+#
+# --password-store=gnome-libsecret makes it keep its secrets in the system keyring (gnome-keyring).
+# Electron picks a keyring by desktop name, and doesn't know niri, so without this flag it
+# falls back to "no system keyring". The keyring itself is unlocked at login by PAM.
+#
+# Set up or repair the distrobox with: matte-claude-setup
+
+BOX="${MATTE_CLAUDE_BOX:-claude}"
+
+if ! distrobox list --no-color 2>/dev/null | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -qx "$BOX"; then
+    msg="Claude Desktop isn't set up yet. Run matte-claude-setup in a terminal."
+    command -v notify-send >/dev/null && notify-send --app-name="Matte OS" "Claude" "$msg"
+    echo "$msg" >&2
+    exit 1
+fi
+
+exec distrobox-enter -n "$BOX" -- /usr/bin/claude-desktop --password-store=gnome-libsecret "$@"

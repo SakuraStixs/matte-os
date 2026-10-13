@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# matte-claude-setup: set up (or repair) Claude Desktop in its "claude" distrobox.
+#
+# Creates an Ubuntu 24.04 distrobox called "claude" if it's missing, then installs or updates:
+#   claude-desktop   from Anthropic's apt repository
+#   libsecret-1-0    so Claude can use the system keyring
+#   nodejs, npm      so local MCP servers (like the Desktop Commander plugin) can start
+#   git, gh          so you, and Claude, can push to GitHub from inside the box
+# Claude is launched from the host with `claude-desktop` (the "Claude" app in the launcher).
+# Safe to run again any time.
+
+set -euo pipefail
+
+BOX="${MATTE_CLAUDE_BOX:-claude}"
+IMAGE=docker.io/library/ubuntu:24.04
+
+if ! distrobox list --no-color 2>/dev/null | awk -F'|' '{gsub(/ /,"",$2); print $2}' | grep -qx "$BOX"; then
+    echo "Creating the '$BOX' distrobox (Ubuntu 24.04)..."
+    distrobox create --yes --name "$BOX" --image "$IMAGE"
+fi
+
+echo "Installing Claude Desktop and its helpers inside '$BOX' (asks for your password for apt)..."
+distrobox enter "$BOX" -- bash -euo pipefail -s <<'INSIDE'
+sudo apt-get update
+sudo apt-get install -y curl gnupg ca-certificates
+if [ ! -f /etc/apt/sources.list.d/claude-desktop.list ]; then
+    sudo curl -fsSLo /usr/share/keyrings/claude-desktop-archive-keyring.asc https://downloads.claude.ai/claude-desktop/key.asc
+    echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/claude-desktop-archive-keyring.asc] https://downloads.claude.ai/claude-desktop/apt/stable stable main" \
+        | sudo tee /etc/apt/sources.list.d/claude-desktop.list >/dev/null
+    sudo apt-get update
+fi
+sudo apt-get install -y claude-desktop libsecret-1-0 nodejs npm git gh
+
+# Copy Claude's icons where the host launcher can find them.
+for icon in /usr/share/icons/hicolor/*/apps/claude-desktop.*; do
+    [ -e "$icon" ] || continue
+    size_dir="$(basename "$(dirname "$(dirname "$icon")")")"
+    mkdir -p "$HOME/.local/share/icons/hicolor/$size_dir/apps"
+    cp -f "$icon" "$HOME/.local/share/icons/hicolor/$size_dir/apps/"
+done
+INSIDE
+
+echo
+echo "Claude Desktop is ready. Open it from the launcher (Claude), or run: claude-desktop"
+echo "To let git push to GitHub from the box, run once:"
+echo "  distrobox enter $BOX -- gh auth login --git-protocol https"
+echo "  distrobox enter $BOX -- gh auth setup-git"
