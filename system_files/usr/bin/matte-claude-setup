@@ -19,7 +19,7 @@ if ! distrobox list --no-color 2>/dev/null | awk -F'|' '{gsub(/ /,"",$2); print 
     distrobox create --yes --name "$BOX" --image "$IMAGE"
 fi
 
-echo "Installing Claude Desktop and its helpers inside '$BOX' (asks for your password for apt)..."
+echo "Installing Claude Desktop and its helpers inside '$BOX'..."
 distrobox enter "$BOX" -- bash -euo pipefail -s <<'INSIDE'
 sudo apt-get update
 sudo apt-get install -y curl gnupg ca-certificates
