@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# matte-shell: run Matte OS's own shell (phase 2, in progress: Iris for now).
+#
+#   matte-shell try           run it in this terminal next to DMS, with DMS's bar hidden
+#                             until you press Ctrl+C (the safe way to test)
+#   matte-shell start | stop  run it in the background / stop it
+#   matte-shell ipc call iris demo
+#                             talk to it (see shell.qml for the commands)
+#   --dev                     use your checkout (~/matte-os/system_files/usr/share/matte-os/shell)
+#                             instead of the copy in the image; edits reload live
+#
+# Settings: ~/.config/matte-os/shell.json  ({"irisScreen": "DP-4", "notifications": false, "clock24h": true})
+
+set -euo pipefail
+
+SHELL_DIR=/usr/share/matte-os/shell
+DEV_DIR="${MATTE_REPO:-$HOME/matte-os}/system_files/usr/share/matte-os/shell"
+
+if [[ "${1:-}" == "--dev" ]]; then
+    SHELL_DIR="$DEV_DIR"
+    shift
+fi
+[[ -f "$SHELL_DIR/shell.qml" ]] || { echo "matte-shell: no shell.qml in $SHELL_DIR" >&2; exit 1; }
+
+case "${1:-try}" in
+    try)
+        if command -v dms >/dev/null; then
+            dms ipc call bar hide >/dev/null 2>&1 || true
+            trap 'dms ipc call bar reveal >/dev/null 2>&1 || true' EXIT
+        fi
+        echo "Matte shell running from $SHELL_DIR (Ctrl+C to stop and bring DMS's bar back)"
+        qs -p "$SHELL_DIR"
+        ;;
+    start)
+        qs -p "$SHELL_DIR" --no-duplicate --daemonize
+        ;;
+    stop)
+        qs kill -p "$SHELL_DIR"
+        ;;
+    ipc)
+        shift
+        exec qs ipc -p "$SHELL_DIR" "$@"
+        ;;
+    -h|--help|help)
+        sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+        ;;
+    *)
+        echo "matte-shell: unknown command '$1' (try: matte-shell help)" >&2
+        exit 2
+        ;;
+esac
