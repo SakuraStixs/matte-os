@@ -1,0 +1,13 @@
+[Unit]
+Description=Install Matte OS default Flatpak apps
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/matte-os/install-flatpaks
+Restart=on-failure
+RestartSec=120
+
+[Install]
+WantedBy=multi-user.target

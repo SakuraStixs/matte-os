@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Installs Matte OS's default Flatpak apps (listed in /usr/share/matte-os/flatpaks.list).
+# Runs at boot; does nothing unless the list has changed since the last successful run.
+set -euo pipefail
+
+LIST=/usr/share/matte-os/flatpaks.list
+STAMP=/var/lib/matte-os/flatpaks-installed
+
+list_hash="$(sha256sum "$LIST" | cut -d' ' -f1)"
+if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$list_hash" ]]; then
+    exit 0
+fi
+
+flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+mapfile -t apps < <(grep -v -E '^[[:space:]]*(#|$)' "$LIST")
+if (( ${#apps[@]} > 0 )); then
+    flatpak install --system --noninteractive --or-update flathub "${apps[@]}"
+fi
+
+mkdir -p "$(dirname "$STAMP")"
+printf '%s\n' "$list_hash" > "$STAMP"

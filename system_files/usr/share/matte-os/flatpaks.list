@@ -1,0 +1,5 @@
+# Flatpak apps Matte OS installs on first boot (one Flathub app ID per line).
+# Add a line here and rebuild to install more apps for everyone.
+
+# Zen browser
+app.zen_browser.zen
