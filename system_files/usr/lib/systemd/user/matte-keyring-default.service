@@ -1,0 +1,9 @@
+[Unit]
+Description=Make the login keyring the default one (once)
+# Started with each niri session (see niri.service.wants) after the keyring daemon.
+After=gnome-keyring-daemon.service
+ConditionPathExists=!%S/matte-os/keyring-default-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/matte-os/keyring-default

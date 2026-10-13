@@ -55,6 +55,8 @@ systemctl --global enable gnome-keyring-daemon.socket
 # Start the daemon with every niri session, so it owns the Secret Service before any app asks.
 mkdir -p /usr/lib/systemd/user/niri.service.wants
 ln -sf ../gnome-keyring-daemon.service /usr/lib/systemd/user/niri.service.wants/gnome-keyring-daemon.service
+# Once per account, make "login" (the keyring PAM unlocks) the default, in case another one was.
+ln -sf ../matte-keyring-default.service /usr/lib/systemd/user/niri.service.wants/matte-keyring-default.service
 # Animated wallpapers start with niri too (they stay off until `matte-wallpaper set` is run).
 ln -sf ../matte-wallpaper.service /usr/lib/systemd/user/niri.service.wants/matte-wallpaper.service
 

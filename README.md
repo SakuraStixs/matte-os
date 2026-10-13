@@ -44,7 +44,7 @@ Settings (FPS, scaling, sound, and whether pausing freezes or fully stops it) ar
 
 ### Claude Desktop and the keyring
 
-Claude Desktop runs in an Ubuntu 24.04 distrobox called `claude`. The launcher starts it with `--password-store=gnome-libsecret`, because Electron doesn't recognise niri and would otherwise fall back to "no system keyring". gnome-keyring is unlocked with your login password by its PAM module, so nothing asks for a keyring password.
+Claude Desktop runs in an Ubuntu 24.04 distrobox called `claude`. The launcher starts it with `--password-store=gnome-libsecret`, because Electron doesn't recognise niri and would otherwise fall back to "no system keyring". gnome-keyring is unlocked with your login password by its PAM module, and once per account the "login" keyring is made the default (in case an app had another one created first), so nothing asks for a keyring password.
 
 ## What's where
 

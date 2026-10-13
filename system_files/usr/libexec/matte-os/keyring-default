@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Makes the "login" keyring the default one, once per account.
+#
+# PAM unlocks the "login" keyring with your password when you sign in. If another keyring was
+# made the default before that worked (for example one an app asked you to create), apps would
+# keep storing secrets there and ask for its password. This switches the default to "login",
+# leaves the other keyring untouched, and doesn't run again (so a later choice of yours sticks).
+# Runs at the start of each niri session until it has done its job.
+
+set -uo pipefail
+
+stamp="${XDG_STATE_HOME:-$HOME/.local/state}/matte-os/keyring-default-done"
+[[ -e "$stamp" ]] && exit 0
+
+bus=org.freedesktop.secrets
+login=/org/freedesktop/secrets/collection/login
+
+# Give the keyring daemon a moment to come up with the session.
+for _ in $(seq 20); do
+    busctl --user status "$bus" >/dev/null 2>&1 && break
+    sleep 0.5
+done
+
+# Only act when the login keyring exists and is unlocked (it isn't with autologin).
+locked="$(busctl --user get-property "$bus" "$login" org.freedesktop.Secret.Collection Locked 2>/dev/null)" || exit 0
+[[ "$locked" == "b false" ]] || exit 0
+
+current="$(busctl --user call "$bus" /org/freedesktop/secrets org.freedesktop.Secret.Service ReadAlias s default 2>/dev/null | awk '{print $2}' | tr -d '"')"
+if [[ "$current" != "$login" ]]; then
+    busctl --user call "$bus" /org/freedesktop/secrets org.freedesktop.Secret.Service SetAlias so default "$login" || exit 1
+    echo "Default keyring switched from ${current##*/} to login"
+fi
+
+mkdir -p "$(dirname "$stamp")"
+touch "$stamp"

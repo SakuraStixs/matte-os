@@ -29,7 +29,10 @@ if [ ! -f /etc/apt/sources.list.d/claude-desktop.list ]; then
         | sudo tee /etc/apt/sources.list.d/claude-desktop.list >/dev/null
     sudo apt-get update
 fi
-sudo apt-get install -y claude-desktop libsecret-1-0 nodejs npm git gh
+sudo apt-get install -y libsecret-1-0 nodejs npm git gh
+# Install Claude only if it's missing: upgrading it while it runs can upset the open app,
+# so updates are left to your usual `sudo apt upgrade` inside the box.
+dpkg -s claude-desktop >/dev/null 2>&1 || sudo apt-get install -y claude-desktop
 
 # Copy Claude's icons where the host launcher can find them.
 for icon in /usr/share/icons/hicolor/*/apps/claude-desktop.*; do
