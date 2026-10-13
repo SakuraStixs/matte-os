@@ -5,9 +5,9 @@ A dark, minimal desktop for a VFX and gaming PC, built as a custom [Bazzite](htt
 - **Base:** `bazzite-nvidia-open` (KDE Plasma stays installed as a backup session)
 - **Desktop:** [niri](https://github.com/niri-wm/niri), a scrolling tiling Wayland compositor
 - **Shell:** [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell) in Island mode as a stand-in, with the Matte OS theme (dark, sky-blue `#7DD3FC`), until Matte OS's own Quickshell shell is ready
-- **Apps:** Kitty, Dolphin, Zen browser (Flatpak on first boot), Claude Desktop (in a distrobox)
+- **Apps:** Kitty, Dolphin, Zen browser and TIDAL (SONE) as Flatpaks on first boot, Claude Desktop (in a distrobox)
 - **Branding:** aperture logo, boot animation, login screen background, wallpaper, Plus Jakarta Sans and JetBrains Mono
-- **Extras:** modes (Normal, VFX, Game, Focus), animated wallpapers through Wallpaper Engine, keyring unlocked at login
+- **Extras:** modes (Normal, VFX, Game, Focus), animated wallpapers through Wallpaper Engine, keyring unlocked at login, hi-fi audio at native sample rates
 
 ## Commands
 
@@ -42,6 +42,13 @@ matte-wallpaper set 1845706469  # every screen; add --screen DP-3 for just one
 
 Settings (FPS, scaling, sound, and whether pausing freezes or fully stops it) are in `~/.config/matte-os/wallpaper.conf`.
 
+### Music and hi-fi audio
+
+- **TIDAL** comes as [SONE](https://github.com/lullabyX/sone) (`io.github.lullabyX.sone`), a native TIDAL client, installed on first boot. Unlike the web player it streams at the track's own rate, up to 24-bit/192 kHz (MAX), and it shows up in the media controls. On NVIDIA it needs WebKit's DMA-BUF renderer off; the image sets that.
+- **Sample rates:** PipeWire normally converts everything to 48 kHz. Matte OS lets the output switch to the music's own rate (44.1 to 192 kHz) when nothing else is playing, and uses a better resampler when it does have to convert.
+- **Bit-perfect (optional):** SONE's exclusive mode sends audio straight to the DAC, but then nothing else can play sound at the same time, and the Flatpak needs device access first: `flatpak override --user --device=all io.github.lullabyX.sone`.
+- `matte-doctor` shows the rate your USB DAC is running at while music plays.
+
 ### Claude Desktop and the keyring
 
 Claude Desktop runs in an Ubuntu 24.04 distrobox called `claude`. The launcher starts it with `--password-store=gnome-libsecret`, because Electron doesn't recognise niri and would otherwise fall back to "no system keyring". gnome-keyring is unlocked with your login password by its PAM module, and once per account the "login" keyring is made the default (in case an app had another one created first), so nothing asks for a keyring password.
@@ -62,6 +69,8 @@ Claude Desktop runs in an Ubuntu 24.04 distrobox called `claude`. The launcher s
 | `system_files/usr/share/matte-os/shell/` | Matte OS's own Quickshell shell (phase 2): Iris |
 | `system_files/usr/bin/` | The `matte-*` commands and the `claude-desktop` launcher |
 | `system_files/usr/libexec/matte-os/mode.d/` | What each mode changes |
+| `system_files/usr/share/pipewire/` | Native sample rates and better resampling |
+| `system_files/usr/share/matte-os/flatpaks.list` | Flatpak apps installed on first boot (and `flatpak-overrides.list` for their tweaks) |
 | `branding/` | Logo geometry and the script that renders icons, wallpapers and boot frames (`node branding/generate.mjs`) |
 
 ## Monitors

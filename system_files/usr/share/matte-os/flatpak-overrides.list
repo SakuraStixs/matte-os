@@ -1,0 +1,6 @@
+# Flatpak permission/environment tweaks Matte OS applies system-wide after installing apps.
+# One app per line: <app ID> <flatpak override options...>
+
+# SONE (TIDAL) on NVIDIA under Wayland: WebKitGTK's DMA-BUF renderer crashes it ("Error 71"),
+# so turn that renderer off. (Bit-perfect/exclusive mode also needs: --device=all; left to you.)
+io.github.lullabyX.sone --env=WEBKIT_DISABLE_DMABUF_RENDERER=1

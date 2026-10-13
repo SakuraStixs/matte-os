@@ -3,3 +3,7 @@
 
 # Zen browser
 app.zen_browser.zen
+
+# TIDAL, through SONE: a native client that plays at the track's own sample rate (up to 24-bit/192 kHz)
+# and can send audio straight to the DAC, bit-perfect. Needs a TIDAL subscription.
+io.github.lullabyX.sone

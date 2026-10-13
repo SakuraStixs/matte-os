@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Installs Matte OS's default Flatpak apps (listed in /usr/share/matte-os/flatpaks.list).
-# Runs at boot; does nothing unless the list has changed since the last successful run.
+# Installs Matte OS's default Flatpak apps (listed in /usr/share/matte-os/flatpaks.list)
+# and applies their tweaks (/usr/share/matte-os/flatpak-overrides.list).
+# Runs at boot; does nothing unless either list has changed since the last successful run.
 set -euo pipefail
 
 LIST=/usr/share/matte-os/flatpaks.list
+OVERRIDES=/usr/share/matte-os/flatpak-overrides.list
 STAMP=/var/lib/matte-os/flatpaks-installed
 
-list_hash="$(sha256sum "$LIST" | cut -d' ' -f1)"
+list_hash="$(cat "$LIST" "$OVERRIDES" 2>/dev/null | sha256sum | cut -d' ' -f1)"
 if [[ -f "$STAMP" && "$(cat "$STAMP")" == "$list_hash" ]]; then
     exit 0
 fi
@@ -16,6 +18,14 @@ flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/
 mapfile -t apps < <(grep -v -E '^[[:space:]]*(#|$)' "$LIST")
 if (( ${#apps[@]} > 0 )); then
     flatpak install --system --noninteractive --or-update flathub "${apps[@]}"
+fi
+
+if [[ -f "$OVERRIDES" ]]; then
+    while read -r app options; do
+        [[ -z "$app" || "$app" == \#* ]] && continue
+        # shellcheck disable=SC2086  # options are separate flags on purpose
+        flatpak override --system $options "$app"
+    done < "$OVERRIDES"
 fi
 
 mkdir -p "$(dirname "$STAMP")"

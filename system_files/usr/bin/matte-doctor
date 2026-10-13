@@ -190,6 +190,33 @@ elif pgrep -f '/usr/bin/claude-desktop|/opt/Claude' >/dev/null; then
     info "Claude is running without the keyring flag; quit it fully and open it again from the launcher"
 fi
 
+# ---------------------------------------------------------------- audio
+section "Audio"
+if [[ -f /usr/share/pipewire/pipewire.conf.d/50-matte-hifi.conf ]]; then
+    ok "sample-rate switching is on (44.1 to 192 kHz), so music isn't converted to 48 kHz"
+else
+    warn "sample-rate switching isn't installed; update to the latest Matte OS image"
+fi
+for usbid in /proc/asound/card*/usbid; do
+    [[ -e "$usbid" ]] || continue
+    card="$(dirname "$usbid")"
+    name="$(head -n1 "$card/stream0" 2>/dev/null | sed 's/ at usb.*//')"
+    [[ -n "$name" ]] || name="$(cat "$card/id")"
+    status="$(awk '/^Playback:/{p=1} p && /Status:/{print $2; exit}' "$card/stream0" 2>/dev/null)"
+    rate="$(awk '/^Playback:/{p=1} p && /Momentary freq/{print $4; exit}' "$card/stream0" 2>/dev/null)"
+    if [[ "$status" == Running && -n "$rate" ]]; then
+        ok "USB DAC '$name' is playing at $(awk -v r="$rate" 'BEGIN{printf "%.1f", r/1000}') kHz"
+    else
+        ok "USB DAC '$name' is connected (play something to see the rate it runs at)"
+    fi
+done
+if command -v flatpak >/dev/null && flatpak info io.github.lullabyX.sone >/dev/null 2>&1; then
+    ok "TIDAL (SONE) is installed"
+else
+    info "TIDAL (SONE) isn't installed yet; it's added on the first boot of the new image, or now with:"
+    info "  flatpak install flathub io.github.lullabyX.sone"
+fi
+
 # ---------------------------------------------------------------- boot animation
 section "Boot animation"
 if command -v plymouth-set-default-theme >/dev/null; then
