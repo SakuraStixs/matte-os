@@ -1,0 +1,285 @@
+// Matte OS boot splash.
+//
+// Storyboard (design canvas, "Boot animation"):
+//   1. black while the PC starts
+//   2. the aperture fades in, nearly closed
+//   3. the blades open and a light appears inside
+//   4. the light rises and stretches into Iris, leaving a short trail
+//   5. Iris rests at the top centre until the login screen takes over
+//
+// The PNGs next to this file are rendered by branding/generate.mjs in the matte-os repo.
+// Plymouth calls refresh() up to 50 times a second; everything is driven from that clock.
+
+Window.SetBackgroundTopColor(0.020, 0.024, 0.031);     // #050608
+Window.SetBackgroundBottomColor(0.020, 0.024, 0.031);
+
+FPS = 50;
+OPEN_FRAMES = 30;
+LIGHT_STEPS = 24;
+LOGO = 160;
+IRIS_TOP = 12;          // Iris sits 12 px below the top edge
+IRIS_HALF_H = 17;       // half of its 34 px height
+
+// Timeline, in seconds from the moment the splash appears
+FADE_START = 0.3;   FADE_END = 0.9;
+OPEN_START = 0.9;   OPEN_END = 1.7;
+LIGHT_START = 1.4;  LIGHT_END = 1.7;
+RISE_START = 1.8;   RISE_END = 2.7;
+IRIS_START = 2.7;   IRIS_END = 3.1;
+
+fun pad2(number) {
+    if (number < 10)
+        return "0" + number;
+    return "" + number;
+}
+
+fun phase(time, from, to) {
+    return Math.Clamp((time - from) / (to - from), 0, 1);
+}
+
+fun ease_out(x) {
+    local.y = 1 - x;
+    return 1 - local.y * local.y * local.y;
+}
+
+fun ease_in_out(x) {
+    if (x < 0.5)
+        return 4 * x * x * x;
+    local.y = 2 - 2 * x;
+    return 1 - local.y * local.y * local.y / 2;
+}
+
+// ---------- images and sprites ----------
+
+image_index = 0;
+while (image_index < OPEN_FRAMES) {
+    aperture_image[image_index] = Image("aperture-" + pad2(image_index) + ".png");
+    image_index++;
+}
+image_index = 0;
+while (image_index < LIGHT_STEPS) {
+    light_image[image_index] = Image("light-" + pad2(image_index) + ".png");
+    image_index++;
+}
+iris_image = Image("iris.png");
+dot_image = Image("dot.png");
+entry_image = Image("entry.png");
+bullet_image = Image("bullet.png");
+
+aperture = Sprite(aperture_image[0]);
+aperture.SetZ(1);
+aperture.SetOpacity(0);
+
+trail_alpha[0] = 0.65;
+trail_alpha[1] = 0.45;
+trail_alpha[2] = 0.3;
+trail_index = 0;
+while (trail_index < 3) {
+    trail[trail_index] = Sprite(light_image[0]);
+    trail[trail_index].SetZ(2);
+    trail[trail_index].SetOpacity(0);
+    trail_index++;
+}
+
+light = Sprite(light_image[0]);
+light.SetZ(3);
+light.SetOpacity(0);
+
+iris = Sprite(iris_image);
+iris.SetZ(4);
+iris.SetOpacity(0);
+
+dot = Sprite(dot_image);
+dot.SetZ(5);
+dot.SetOpacity(0);
+
+// Shutdown, reboot and updates get a still logo instead of the full animation.
+mode = Plymouth.GetMode();
+animated = (mode == "boot" || mode == "resume");
+
+tick = 0;
+screen_w = 0;
+screen_h = 0;
+
+// ---------- layout ----------
+
+fun place(sprite, image, mid_x, mid_y) {
+    sprite.SetImage(image);
+    sprite.SetX(Math.Int(mid_x - image.GetWidth() / 2));
+    sprite.SetY(Math.Int(mid_y - image.GetHeight() / 2));
+}
+
+fun light_progress(time) {
+    return ease_in_out(phase(time, RISE_START, RISE_END));
+}
+
+fun light_step(time) {
+    return Math.Int(light_progress(time) * (LIGHT_STEPS - 1) + 0.5);
+}
+
+fun light_y(time) {
+    local.top = Window.GetY() + IRIS_TOP + IRIS_HALF_H;
+    return centre_y + (local.top - centre_y) * light_progress(time);
+}
+
+// The script plugin only tells us about screens coming and going through the window size,
+// so re-centre whenever it changes (a monitor waking up late, for example).
+fun layout() {
+    global.screen_w = Window.GetWidth();
+    global.screen_h = Window.GetHeight();
+    global.centre_x = Window.GetX() + screen_w / 2;
+    global.centre_y = Window.GetY() + screen_h / 2;
+
+    aperture.SetX(Math.Int(centre_x - LOGO / 2));
+    aperture.SetY(Math.Int(centre_y - LOGO / 2));
+    iris.SetX(Math.Int(centre_x - iris_image.GetWidth() / 2));
+    iris.SetY(Window.GetY() + IRIS_TOP);
+    place(dot, dot_image, centre_x, Window.GetY() + IRIS_TOP + IRIS_HALF_H);
+    layout_prompt();
+}
+
+// ---------- animation ----------
+
+fun refresh() {
+    if (Window.GetWidth() != screen_w || Window.GetHeight() != screen_h)
+        layout();
+
+    global.tick++;
+    local.time = tick / FPS;
+
+    if (animated == 0) {
+        aperture.SetImage(aperture_image[OPEN_FRAMES - 1]);
+        aperture.SetOpacity(phase(local.time, 0, 0.4));
+        place(light, light_image[0], centre_x, centre_y);
+        light.SetOpacity(phase(local.time, 0.2, 0.6));
+        return;
+    }
+
+    // 2-3: fade in nearly closed, then open
+    local.opened = ease_out(phase(local.time, OPEN_START, OPEN_END));
+    aperture.SetImage(aperture_image[Math.Int(local.opened * (OPEN_FRAMES - 1) + 0.5)]);
+    local.dim = 1 - 0.75 * phase(local.time, RISE_START, RISE_START + 0.5) - 0.25 * phase(local.time, RISE_START + 0.5, RISE_END);
+    aperture.SetOpacity(phase(local.time, FADE_START, FADE_END) * local.dim);
+
+    // 3-4: the light appears in the opening, rises and grows
+    local.shown = phase(local.time, LIGHT_START, LIGHT_END) * (1 - phase(local.time, IRIS_START, IRIS_END));
+    place(light, light_image[light_step(local.time)], centre_x, light_y(local.time));
+    light.SetOpacity(local.shown);
+
+    // the short motion trail behind the rising light
+    local.k = 0;
+    while (local.k < 3) {
+        local.past = local.time - 0.06 * (local.k + 1);
+        if (local.time > RISE_START && local.time < RISE_END && local.past > RISE_START) {
+            place(trail[local.k], light_image[light_step(local.past)], centre_x, light_y(local.past));
+            trail[local.k].SetOpacity(trail_alpha[local.k] * 0.6);
+        } else {
+            trail[local.k].SetOpacity(0);
+        }
+        local.k++;
+    }
+
+    // 5: the light settles into Iris; its dot breathes until the login screen takes over
+    iris.SetOpacity(phase(local.time, IRIS_START, IRIS_END));
+    if (local.time < IRIS_END)
+        dot.SetOpacity(phase(local.time, IRIS_START + 0.1, IRIS_END));
+    else
+        dot.SetOpacity(0.65 + 0.35 * Math.Cos((local.time - IRIS_END) * 2.4));
+}
+
+Plymouth.SetRefreshFunction(refresh);
+
+// ---------- password and question prompts (encrypted disks) ----------
+
+prompt_visible = 0;
+prompt_text = "";
+prompt_answer = "";
+bullet_count = 0;
+entry = Sprite(entry_image);
+entry.SetZ(10);
+entry.SetOpacity(0);
+
+fun text_image(text, red, green, blue) {
+    return Image.Text(text, red, green, blue, 1, "Plus Jakarta Sans 11");
+}
+
+fun layout_prompt() {
+    global.bullets = null;
+    global.label = null;
+    global.answer = null;
+    if (prompt_visible == 0) {
+        entry.SetOpacity(0);
+        return;
+    }
+
+    local.entry_y = centre_y + LOGO / 2 + 64;
+    place(entry, entry_image, centre_x, local.entry_y);
+    entry.SetOpacity(1);
+
+    if (prompt_text != "") {
+        global.label.image = text_image(prompt_text, 0.545, 0.576, 0.639);   // #8B93A3
+        global.label.sprite = Sprite(label.image);
+        global.label.sprite.SetZ(12);
+        place(label.sprite, label.image, centre_x, local.entry_y - 44);
+    }
+
+    if (prompt_answer != "") {
+        global.answer.image = text_image(prompt_answer, 0.902, 0.914, 0.937);   // #E6E9EF
+        global.answer.sprite = Sprite(answer.image);
+        global.answer.sprite.SetZ(11);
+        place(answer.sprite, answer.image, centre_x, local.entry_y);
+        return;
+    }
+
+    local.shown = Math.Min(bullet_count, 18);
+    local.step = 16;
+    local.left = centre_x - (local.shown * local.step) / 2 + local.step / 2;
+    local.i = 0;
+    while (local.i < local.shown) {
+        global.bullets[local.i] = Sprite(bullet_image);
+        global.bullets[local.i].SetZ(11);
+        place(bullets[local.i], bullet_image, local.left + local.i * local.step, local.entry_y);
+        local.i++;
+    }
+}
+
+fun display_password(prompt, count) {
+    global.prompt_visible = 1;
+    global.prompt_text = prompt;
+    global.prompt_answer = "";
+    global.bullet_count = count;
+    layout_prompt();
+}
+
+fun display_question(prompt, entry_text) {
+    global.prompt_visible = 1;
+    global.prompt_text = prompt;
+    global.prompt_answer = entry_text;
+    global.bullet_count = 0;
+    layout_prompt();
+}
+
+fun display_normal() {
+    global.prompt_visible = 0;
+    layout_prompt();
+}
+
+Plymouth.SetDisplayPasswordFunction(display_password);
+Plymouth.SetDisplayQuestionFunction(display_question);
+Plymouth.SetDisplayNormalFunction(display_normal);
+
+// ---------- messages (for example during offline updates) ----------
+
+fun show_message(text) {
+    global.message = null;
+    if (text == "")
+        return;
+    global.message.image = text_image(text, 0.545, 0.576, 0.639);
+    global.message.sprite = Sprite(message.image);
+    global.message.sprite.SetZ(12);
+    place(message.sprite, message.image, centre_x, Window.GetY() + screen_h - 56);
+}
+
+Plymouth.SetMessageFunction(show_message);
+
+layout();

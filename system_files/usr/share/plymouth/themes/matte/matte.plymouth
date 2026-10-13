@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Matte OS
+Description=The aperture opens and its light rises into Iris.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/matte
+ScriptFile=/usr/share/plymouth/themes/matte/matte.script
