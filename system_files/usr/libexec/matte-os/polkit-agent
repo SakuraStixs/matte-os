@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Starts whichever polkit authentication agent is installed. It shows the password box
+# when an app needs administrator rights (mounting a drive, installing, and so on).
+for agent in \
+    /usr/libexec/polkit-gnome-authentication-agent-1 \
+    /usr/libexec/kf6/polkit-kde-authentication-agent-1 \
+    /usr/libexec/polkit-kde-authentication-agent-1 \
+    /usr/lib/polkit-kde-authentication-agent-1 \
+    /usr/lib64/libexec/polkit-kde-authentication-agent-1; do
+    if [[ -x "$agent" ]]; then exec "$agent"; fi
+done
+echo "matte-os: no polkit agent found" >&2
+exit 1

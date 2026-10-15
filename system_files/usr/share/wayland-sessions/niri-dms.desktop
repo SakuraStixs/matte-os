@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Niri (DMS fallback)
+Comment=Matte OS emergency session using DankMaterialShell instead of Iris
+Exec=env NIRI_CONFIG=/etc/niri/config-dms.kdl niri-session
+Type=Application
+DesktopNames=niri

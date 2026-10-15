@@ -1,0 +1,3 @@
+# PAM service used by the Iris lock screen
+auth       include      system-auth
+account    include      system-auth

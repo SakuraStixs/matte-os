@@ -1,0 +1,68 @@
+# Matte OS boot animation.
+# intro-000..119 play once (ring draws, blades unfold, ignite, shoot out); loop-000..199 repeat until boot ends. 50 fps.
+# Frames are made by tools/make-boot-frames.py.
+
+Window.SetBackgroundTopColor(0.039, 0.039, 0.039);
+Window.SetBackgroundBottomColor(0.039, 0.039, 0.039);
+
+intro_count = 120;
+loop_count = 200;
+frame_size = 512;
+
+fun three_digits(n) {
+    if (n < 10) return "00" + n;
+    if (n < 100) return "0" + n;
+    return "" + n;
+}
+
+for (i = 0; i < intro_count; i++)
+    intro_image[i] = Image("intro-" + three_digits(i) + ".png");
+for (i = 0; i < loop_count; i++)
+    loop_image[i] = Image("loop-" + three_digits(i) + ".png");
+
+# Centre on the main (right) monitor when two screens are joined side by side,
+# otherwise on the screen.
+w = Window.GetWidth();
+h = Window.GetHeight();
+if (w / h > 2.5)
+    cx = Window.GetX() + w * 0.75;
+else
+    cx = Window.GetX() + w / 2;
+cy = Window.GetY() + h / 2;
+
+sprite = Sprite(intro_image[0]);
+sprite.SetPosition(cx - frame_size / 2, cy - frame_size / 2, 1);
+
+tick = 0;
+
+fun refresh_callback() {
+    # called about 50 times a second: one new frame per tick (50 fps)
+    frame = global.tick;
+    if (frame < global.intro_count) {
+        global.sprite.SetImage(global.intro_image[frame]);
+    } else {
+        n = frame - global.intro_count;
+        lf = n - Math.Int(n / global.loop_count) * global.loop_count;
+        global.sprite.SetImage(global.loop_image[lf]);
+    }
+    global.tick++;
+}
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# Disk-password prompt (only shown on encrypted installs)
+password_sprite = Sprite();
+password_sprite.SetOpacity(0);
+
+fun display_password(prompt, bullets) {
+    s = "Password";
+    for (i = 0; i < bullets; i++) s = s + " *";
+    img = Image.Text(s, 0.95, 0.95, 0.95);
+    global.password_sprite.SetImage(img);
+    global.password_sprite.SetPosition(global.cx - img.GetWidth() / 2, global.cy + 300, 2);
+    global.password_sprite.SetOpacity(1);
+}
+fun display_normal() {
+    global.password_sprite.SetOpacity(0);
+}
+Plymouth.SetDisplayPasswordFunction(display_password);
+Plymouth.SetDisplayNormalFunction(display_normal);

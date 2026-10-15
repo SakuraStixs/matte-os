@@ -3,3 +3,6 @@
 
 # Zen browser
 app.zen_browser.zen
+
+# Bitwarden: free password manager (saves and fills passwords; the Zen browser extension does the autofill)
+com.bitwarden.desktop

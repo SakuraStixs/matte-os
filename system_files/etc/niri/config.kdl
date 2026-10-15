@@ -24,6 +24,11 @@ input {
     }
 }
 
+// Qt apps (Dolphin and others) pick up the Matte OS colour scheme.
+environment {
+    QT_QPA_PLATFORMTHEME "kde"
+}
+
 // Monitors
 // Your two 1920x1080 monitors run at 165 Hz, but report 60 Hz as their default.
 // Leaving out the refresh rate makes niri pick the highest one for that resolution.
@@ -54,12 +59,16 @@ layout {
 
     default-column-width { proportion 0.5; }
 
-    // The sky-blue accent marks the focused window, and nothing else.
+    // Matte OS is monochrome, like the wallpaper: near-black with off-white.
+    // The off-white ring marks the focused window, and nothing else.
     focus-ring {
         width 2
-        active-color "#7DD3FC"
-        inactive-color "#2A2F3A"
+        active-color "#F2F2F2"
+        inactive-color "#2E2E2E"
     }
+
+    // Same near-black as the wallpaper, so nothing flashes at login.
+    background-color "#1F1F1F"
 
     border {
         off
@@ -77,8 +86,12 @@ layout {
 // Apps draw no title bars of their own; the focus ring does that job.
 prefer-no-csd
 
-// Stand-in shell until Matte OS's own shell is ready.
-spawn-at-startup "dms" "run"
+// Iris, Matte OS's own shell (Quickshell). Lives in /etc/xdg/quickshell/iris;
+// a copy in ~/.config/quickshell/iris overrides it while you develop.
+spawn-at-startup "qs" "-c" "iris"
+
+// Shows the password box when an app needs administrator rights.
+spawn-at-startup "/usr/libexec/matte-os/polkit-agent"
 
 hotkey-overlay {
     skip-at-startup
@@ -106,13 +119,10 @@ binds {
     Mod+E hotkey-overlay-title="Files: Dolphin" { spawn "dolphin"; }
     Mod+B hotkey-overlay-title="Browser: Zen" { spawn "flatpak" "run" "app.zen_browser.zen"; }
 
-    // Shell (DankMaterialShell for now)
-    Mod+Space hotkey-overlay-title="Search apps and files" { spawn "dms" "ipc" "call" "spotlight" "toggle"; }
-    Mod+V hotkey-overlay-title="Clipboard history" { spawn "dms" "ipc" "call" "clipboard" "toggle"; }
-    Mod+N hotkey-overlay-title="Notifications" { spawn "dms" "ipc" "call" "notifications" "toggle"; }
-    Mod+L hotkey-overlay-title="Lock the screen" { spawn "dms" "ipc" "call" "lock" "lock"; }
-    Ctrl+Shift+Escape hotkey-overlay-title="Task manager" { spawn "dms" "ipc" "call" "processlist" "focusOrToggle"; }
-    Ctrl+Alt+Delete hotkey-overlay-title="Power menu" { spawn "dms" "ipc" "call" "powermenu" "toggle"; }
+    // Shell. Interim launcher until Iris has its own (command palette).
+    Mod+Space hotkey-overlay-title="Search apps" { spawn "fuzzel"; }
+    Mod+L hotkey-overlay-title="Lock the screen" { spawn "qs" "-c" "iris" "ipc" "call" "lock" "lock"; }
+    // Coming in Iris: clipboard history, power menu, task manager.
 
     // Screenshots (Win+Shift+S works like Windows' Snipping Tool)
     Mod+Shift+S { screenshot; }
@@ -120,10 +130,10 @@ binds {
     Ctrl+Print { screenshot-screen; }
     Alt+Print { screenshot-window; }
 
-    // Volume and media keys
-    XF86AudioRaiseVolume allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "increment" "3"; }
-    XF86AudioLowerVolume allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "decrement" "3"; }
-    XF86AudioMute        allow-when-locked=true { spawn "dms" "ipc" "call" "audio" "mute"; }
+    // Volume and media keys (straight to PipeWire until Iris shows its own volume popup)
+    XF86AudioRaiseVolume allow-when-locked=true { spawn "wpctl" "set-volume" "-l" "1.0" "@DEFAULT_AUDIO_SINK@" "3%+"; }
+    XF86AudioLowerVolume allow-when-locked=true { spawn "wpctl" "set-volume" "@DEFAULT_AUDIO_SINK@" "3%-"; }
+    XF86AudioMute        allow-when-locked=true { spawn "wpctl" "set-mute" "@DEFAULT_AUDIO_SINK@" "toggle"; }
     XF86AudioPlay        allow-when-locked=true { spawn "playerctl" "play-pause"; }
     XF86AudioPause       allow-when-locked=true { spawn "playerctl" "play-pause"; }
     XF86AudioPrev        allow-when-locked=true { spawn "playerctl" "previous"; }
@@ -198,7 +208,7 @@ binds {
     Mod+Shift+Equal { set-window-height "+10%"; }
     Mod+W { toggle-column-tabbed-display; }
 
-    // Floating windows (Win+V is clipboard history, so floating moves to Win+Alt+V)
+    // Floating windows (Win+V is reserved for clipboard history later, so floating is on Win+Alt+V)
     Mod+Alt+V   { toggle-window-floating; }
     Mod+Shift+V { switch-focus-between-floating-and-tiling; }
 

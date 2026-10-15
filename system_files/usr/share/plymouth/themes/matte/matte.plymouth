@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Matte OS
+Description=The Iris aperture opens and its blades shoot out into a small solar system
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/matte
+ScriptFile=/usr/share/plymouth/themes/matte/matte.script
